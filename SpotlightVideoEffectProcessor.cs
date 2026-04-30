@@ -9,20 +9,10 @@ using YukkuriMovieMaker.Player.Video;
 namespace SpotlightEffect
 {
     /// <summary>
-    /// スポットライトエフェクト Processor（矩形専用・安定版）
+    /// 矩形スポットライト Processor（px指定版）。
     ///
-    /// 方針:
-    /// - Polygon / Freehand は扱わない。
-    /// - 自前Bitmap / CommandList / PushLayer / PathGeometry は使わない。
-    /// - Direct2D組み込みEffectだけで構成する。
-    /// - 画像本体はぼかさず、矩形マスクだけをGaussianBlurする。
-    ///
-    /// チェーン:
-    ///   元映像 ──┬→ ColorMatrix(暗化) ─────────────────────────────┐
-    ///            │                                                 ├→ Composite(SourceOver) → Output
-    ///            └→ AlphaMask(元映像, Flood→Crop→GaussianBlur) ───┘
-    ///
-    /// これにより、スポット内の文字・地図はぼけず、境界だけがぼける。
+    /// 元映像そのものはぼかさず、白い矩形マスクだけをGaussianBlurする。
+    /// そのマスクをAlphaMaskとして元映像に適用し、暗化映像の上に重ねる。
     /// </summary>
     internal sealed class SpotlightVideoEffectProcessor : IVideoEffectProcessor
     {
@@ -53,8 +43,6 @@ namespace SpotlightEffect
         double prevCenterY = double.NaN;
         double prevSpotWidth = double.NaN;
         double prevSpotHeight = double.NaN;
-        float prevCanvasWidth = -1f;
-        float prevCanvasHeight = -1f;
 
         public ID2D1Image Output { get; }
 
@@ -63,18 +51,15 @@ namespace SpotlightEffect
             this.item = item;
             deviceContext = devices.DeviceContext;
 
-            // 背面: 全体を暗くした映像。
             darkenEffect = new ColorMatrix(deviceContext);
             darkenOutput = darkenEffect.Output;
 
-            // マスク元: 白い全面画像。
             maskFloodEffect = new Flood(deviceContext)
             {
                 Color = new Vector4(1f, 1f, 1f, 1f),
             };
             maskFloodOutput = maskFloodEffect.Output;
 
-            // 白い全面画像から、スポット矩形だけを切り出す。
             maskCropEffect = new Crop(deviceContext)
             {
                 BorderMode = BorderMode.Soft,
@@ -82,7 +67,6 @@ namespace SpotlightEffect
             maskCropEffect.SetInput(0, maskFloodOutput, true);
             maskCropOutput = maskCropEffect.Output;
 
-            // 画像本体ではなく、白マスクだけをぼかす。
             maskBlurEffect = new GaussianBlur(deviceContext)
             {
                 BorderMode = BorderMode.Soft,
@@ -91,12 +75,10 @@ namespace SpotlightEffect
             maskBlurEffect.SetInput(0, maskCropOutput, true);
             maskBlurOutput = maskBlurEffect.Output;
 
-            // 元映像を、ぼかし済みマスクで抜く。
             alphaMaskEffect = new AlphaMask(deviceContext);
             alphaMaskEffect.SetInput(1, maskBlurOutput, true);
             maskedSourceOutput = alphaMaskEffect.Output;
 
-            // 背面の暗化映像の上に、マスクで抜いた元映像を重ねる。
             compositeEffect = new Composite(deviceContext)
             {
                 Mode = CompositeMode.SourceOver,
@@ -132,36 +114,17 @@ namespace SpotlightEffect
             double darkness = item.Darkness.GetValue(frame, length, fps);
             double edgeBlur = item.EdgeBlur.GetValue(frame, length, fps);
 
-            centerX = Math.Clamp(centerX, 0.0, 100.0);
-            centerY = Math.Clamp(centerY, 0.0, 100.0);
-            spotWidth = Math.Clamp(spotWidth, 1.0, 200.0);
-            spotHeight = Math.Clamp(spotHeight, 1.0, 200.0);
+            spotWidth = Math.Max(spotWidth, 1.0);
+            spotHeight = Math.Max(spotHeight, 1.0);
             darkness = Math.Clamp(darkness, 0.0, 100.0);
-            edgeBlur = Math.Clamp(edgeBlur, 0.0, 60.0);
-
-            GetCanvasSize(out float canvasWidth, out float canvasHeight);
+            edgeBlur = Math.Clamp(edgeBlur, 0.0, 1000.0);
 
             UpdateDarkness(darkness);
-            UpdateMaskRectangle(centerX, centerY, spotWidth, spotHeight, canvasWidth, canvasHeight);
-            UpdateMaskBlur(edgeBlur, canvasWidth, canvasHeight);
+            UpdateMaskRectangle(centerX, centerY, spotWidth, spotHeight);
+            UpdateMaskBlur(edgeBlur);
 
             isFirst = false;
             return effectDescription.DrawDescription;
-        }
-
-        void GetCanvasSize(out float canvasWidth, out float canvasHeight)
-        {
-            var size = deviceContext.Size;
-            canvasWidth = size.Width;
-            canvasHeight = size.Height;
-
-            // YMM4ではUpdate時点でDeviceContext.Sizeが未確定/極小になることがある。
-            // その場合は過去に安定した1920x1080を使う。
-            if (canvasWidth <= 1f || canvasHeight <= 1f)
-            {
-                canvasWidth = 1920f;
-                canvasHeight = 1080f;
-            }
         }
 
         void UpdateDarkness(double darkness)
@@ -183,53 +146,41 @@ namespace SpotlightEffect
             prevDarkness = darkness;
         }
 
-        void UpdateMaskRectangle(double centerX, double centerY, double spotWidth, double spotHeight, float canvasWidth, float canvasHeight)
+        void UpdateMaskRectangle(double centerX, double centerY, double spotWidth, double spotHeight)
         {
             bool unchanged =
                 !isFirst &&
                 Math.Abs(prevCenterX - centerX) < 0.0001 &&
                 Math.Abs(prevCenterY - centerY) < 0.0001 &&
                 Math.Abs(prevSpotWidth - spotWidth) < 0.0001 &&
-                Math.Abs(prevSpotHeight - spotHeight) < 0.0001 &&
-                Math.Abs(prevCanvasWidth - canvasWidth) < 0.01f &&
-                Math.Abs(prevCanvasHeight - canvasHeight) < 0.01f;
+                Math.Abs(prevSpotHeight - spotHeight) < 0.0001;
 
             if (unchanged)
                 return;
 
-            float cx = canvasWidth * (float)(centerX / 100.0);
-            float cy = canvasHeight * (float)(centerY / 100.0);
-            float halfWidth = Math.Max(canvasWidth * (float)(spotWidth / 200.0), 1f);
-            float halfHeight = Math.Max(canvasHeight * (float)(spotHeight / 200.0), 1f);
+            float halfWidth = Math.Max((float)spotWidth / 2f, 1f);
+            float halfHeight = Math.Max((float)spotHeight / 2f, 1f);
 
-            float left = cx - halfWidth;
-            float top = cy - halfHeight;
-            float width = halfWidth * 2f;
-            float height = halfHeight * 2f;
+            float left = (float)centerX - halfWidth;
+            float top = (float)centerY - halfHeight;
+            float right = (float)centerX + halfWidth;
+            float bottom = (float)centerY + halfHeight;
 
-            // Crop.Rectangle は Vector4(left, top, width, height)。
-            maskCropEffect.Rectangle = new Vector4(left, top, width, height);
+            // D2D Crop effectのRectangleは(left, top, right, bottom)。
+            maskCropEffect.Rectangle = new Vector4(left, top, right, bottom);
 
             prevCenterX = centerX;
             prevCenterY = centerY;
             prevSpotWidth = spotWidth;
             prevSpotHeight = spotHeight;
-            prevCanvasWidth = canvasWidth;
-            prevCanvasHeight = canvasHeight;
         }
 
-        void UpdateMaskBlur(double edgeBlur, float canvasWidth, float canvasHeight)
+        void UpdateMaskBlur(double edgeBlur)
         {
             if (!isFirst && Math.Abs(prevEdgeBlur - edgeBlur) < 0.0001)
                 return;
 
-            // UI値は0-60%。そのままpx扱いにすると弱すぎる/強すぎる環境が出るため、
-            // 画面短辺に対する比率へ変換する。
-            // 例: 1080pで EdgeBlur=10 → 約27px。
-            float sigma = Math.Min(canvasWidth, canvasHeight) * (float)(edgeBlur / 100.0) * 0.25f;
-            sigma = Math.Clamp(sigma, 0f, 120f);
-
-            maskBlurEffect.StandardDeviation = sigma;
+            maskBlurEffect.StandardDeviation = Math.Clamp((float)edgeBlur, 0f, 300f);
             prevEdgeBlur = edgeBlur;
         }
 

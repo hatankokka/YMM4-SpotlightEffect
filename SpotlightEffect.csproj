@@ -6,7 +6,19 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>SpotlightEffect</AssemblyName>
     <RootNamespace>SpotlightEffect</RootNamespace>
+    <YMM4DirPath Condition="'$(YMM4DirPath)' == ''">G:\ymm4\YukkuriMovieMaker_v4\</YMM4DirPath>
   </PropertyGroup>
+
+  <Target Name="ValidateYMM4References" BeforeTargets="PrepareForBuild">
+    <Message Importance="high" Text="YMM4DirPath=$(YMM4DirPath)" />
+    <Error Condition="!Exists('$(YMM4DirPath)YukkuriMovieMaker.Plugin.dll')" Text="YukkuriMovieMaker.Plugin.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)YukkuriMovieMaker.Controls.dll')" Text="YukkuriMovieMaker.Controls.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)Vortice.Direct2D1.dll')" Text="Vortice.Direct2D1.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)Vortice.Mathematics.dll')" Text="Vortice.Mathematics.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)Vortice.DirectX.dll')" Text="Vortice.DirectX.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)SharpGen.Runtime.dll')" Text="SharpGen.Runtime.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+    <Error Condition="!Exists('$(YMM4DirPath)SharpGen.Runtime.COM.dll')" Text="SharpGen.Runtime.COM.dll が見つかりません。YMM4DirPath=$(YMM4DirPath) を確認してください。" />
+  </Target>
 
   <ItemGroup>
     <Reference Include="YukkuriMovieMaker.Controls">
@@ -41,8 +53,6 @@
 
   <Target Name="CopyToPlugin" AfterTargets="Build">
     <MakeDir Directories="$(YMM4DirPath)user\plugin\SpotlightEffect\" />
-    <Copy
-      SourceFiles="$(OutputPath)SpotlightEffect.dll"
-      DestinationFolder="$(YMM4DirPath)user\plugin\SpotlightEffect\" />
+    <Copy SourceFiles="$(OutputPath)SpotlightEffect.dll" DestinationFolder="$(YMM4DirPath)user\plugin\SpotlightEffect\" Retries="5" RetryDelayMilliseconds="1000" />
   </Target>
 </Project>
