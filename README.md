@@ -10,6 +10,7 @@
 - 中心X / 中心Y / 幅 / 高さを調整
 - 暗くする強度を調整
 - 境界ぼかしに対応
+<img width="1580" height="947" alt="image" src="https://github.com/user-attachments/assets/1ef87c2d-9432-4f67-a36f-2fb611403f91" />
 
 ## 必要環境
 
