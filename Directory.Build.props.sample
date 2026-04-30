@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Change this path to your YukkuriMovieMaker_v4 folder. Keep the trailing backslash. -->
+    <YMM4DirPath>C:\Path\To\YukkuriMovieMaker_v4\</YMM4DirPath>
+  </PropertyGroup>
+</Project>
